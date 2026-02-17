@@ -1,65 +1,102 @@
-import whisper
 import pygame
 import time
 import os
+import sys
+from colorama import init, Fore, Style
+import shutil
 
-def generate_and_play_lyrics(audio_path, output_lyric_file="lyrics.txt"):
-    print("Loading Whisper AI model... (This might take a moment)")
-    # 'base' is fast and decent. Use 'small' or 'medium' for better accuracy if you have a good GPU.
-    # Upgraded to 'medium' for better Sinhala accuracy
-    model = whisper.load_model("medium")
+init()
 
-    print(f"Transcribing '{audio_path}'... Sit tight!")
-    # Transcribe the audio. This generates the text and the timestamps.
-    result = model.transcribe(audio_path, language="si")
-    segments = result['segments']
+def clear_line():
+    """Cross-platform line clear using terminal width"""
+    width = shutil.get_terminal_size().columns
+    sys.stdout.write('\r' + ' ' * (width - 1) + '\r')
+    sys.stdout.flush()
 
-    # Step 1: Save the lyrics to a file
-    print(f"Saving lyrics and timestamps to {output_lyric_file}...")
-    with open(output_lyric_file, "w", encoding="utf-8") as f:
-        for segment in segments:
-            # Format: [Start_Time - End_Time] Lyric text
-            f.write(f"[{segment['start']:.2f} - {segment['end']:.2f}] {segment['text'].strip()}\n")
+def play_lyrics(audio_path, lyric_file="lyrics.txt"):
+    segments = []
 
-    # Step 2: Play the audio and sync the lyrics to the terminal
-    print("\nStarting playback...\n" + "-"*30)
+    if not os.path.exists(lyric_file):
+        print(Fore.RED + f"Error: Could not find '{lyric_file}'." + Style.RESET_ALL)
+        return
+
+    with open(lyric_file, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.startswith("["):
+                parts = line.split("] ", 1)
+                times = parts[0].strip("[").split(" - ")
+                text = parts[1].strip() if len(parts) > 1 else ""
+                if text:
+                    segments.append({
+                        'start': float(times[0]),
+                        'end': float(times[1]),
+                        'text': text
+                    })
+
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(Fore.YELLOW + "\nStarting playback...\n" + "="*40 + "\n" + Style.RESET_ALL)
+
     pygame.mixer.init()
     pygame.mixer.music.load(audio_path)
     pygame.mixer.music.play()
 
     start_time = time.time()
     current_segment = 0
+    last_printed_chars = 0  # Track how many chars were printed last frame
 
     try:
-        # Loop while the music is playing and we still have lyrics to show
         while pygame.mixer.music.get_busy() and current_segment < len(segments):
-            # Calculate how much time has passed since the song started
             elapsed_time = time.time() - start_time
             segment = segments[current_segment]
 
-            # If the elapsed time matches or passes the start time of the next lyric, print it
             if elapsed_time >= segment['start']:
-                print(segment['text'].strip())
+                text = segment['text']
+                duration = segment['end'] - segment['start']
+                line_start = time.time()
+                last_printed_chars = 0
+
+                while True:
+                    current_elapsed = time.time() - line_start
+
+                    if current_elapsed >= (duration * 0.85):
+                        # ✅ Clear the whole line first, then print full text
+                        clear_line()
+                        sys.stdout.write(Fore.CYAN + text + Style.RESET_ALL)
+                        sys.stdout.flush()
+                        print()  # Move to next line
+                        last_printed_chars = 0
+                        break
+
+                    progress = current_elapsed / (duration * 0.85)
+                    chars_to_show = int(len(text) * progress)
+
+                    # Only redraw if char count changed (avoids flicker)
+                    if chars_to_show != last_printed_chars:
+                        # ✅ Clear entire line before rewriting (fixes Sinhala overlap)
+                        clear_line()
+                        sys.stdout.write(Fore.CYAN + text[:chars_to_show] + Style.RESET_ALL)
+                        sys.stdout.flush()
+                        last_printed_chars = chars_to_show
+
+                    time.sleep(0.01)
+
                 current_segment += 1
 
-            # Sleep briefly to prevent the loop from maxing out your CPU
-            time.sleep(0.05)
-            
+            time.sleep(0.01)
+
     except KeyboardInterrupt:
-        print("\nPlayback stopped by user.")
+        print(Fore.RED + "\nPlayback stopped by user." + Style.RESET_ALL)
         pygame.mixer.music.stop()
 
-    # Wait for the song to finish if the lyrics end early
     while pygame.mixer.music.get_busy():
         time.sleep(1)
 
-    print("\n" + "-"*30 + "\nDone!")
+    print(Fore.GREEN + "\n" + "="*40 + "\nDone!" + Style.RESET_ALL)
 
 if __name__ == "__main__":
-    # ---> REPLACE THIS WITH YOUR SONG'S FILENAME <---
     audio_file = "nela-ganumata-nohaki-wuwada-suneera-sumanga.mp3"
-    
+
     if os.path.exists(audio_file):
-        generate_and_play_lyrics(audio_file)
+        play_lyrics(audio_file)
     else:
-        print(f"Error: Could not find the file '{audio_file}'. Please check the path and try again.")
+        print(Fore.RED + f"Error: Could not find '{audio_file}'." + Style.RESET_ALL)
