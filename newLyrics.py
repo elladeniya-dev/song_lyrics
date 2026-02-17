@@ -3,36 +3,29 @@ import time
 import os
 import sys
 from rich.console import Console
-from rich.live import Live
-from rich.panel import Panel
-from rich.layout import Layout
-from rich.align import Align
 from rich.text import Text
-from rich.progress import ProgressBar
 
-console = Console()
+# IntelliJ terminal එකේ colors force කරන්න force_terminal=True දානවා
+console = Console(force_terminal=True, color_system="truecolor")
 
-def play_pro_lyrics(audio_path, lyric_file):
-    # --- 1. File Check (Debug messages ekka) ---
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    audio_path = os.path.join(script_dir, audio_path)
-    lyric_file = os.path.join(script_dir, lyric_file)
+def play_pro_lyrics(audio_file, lyric_file):
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    audio_path = os.path.join(base_dir, audio_file)
+    lyric_path = os.path.join(base_dir, lyric_file)
 
-    if not os.path.exists(audio_path) or not os.path.exists(lyric_file):
-        console.print(f"[bold red]Error:[/bold red] Files hoyaganna ba! Folder eka check karanna.")
+    if not os.path.exists(audio_path) or not os.path.exists(lyric_path):
+        console.print("[bold red]Files missing![/bold red]")
         return
 
     segments = []
-    with open(lyric_file, "r", encoding="utf-8") as f:
+    with open(lyric_path, "r", encoding="utf-8") as f:
         for line in f:
             if line.startswith("["):
-                try:
-                    parts = line.split("] ", 1)
-                    times = parts[0].strip("[").split(" - ")
-                    text = parts[1].strip() if len(parts) > 1 else ""
-                    if text:
-                        segments.append({'start': float(times[0]), 'end': float(times[1]), 'text': text})
-                except: continue
+                parts = line.split("] ", 1)
+                times = parts[0].strip("[").split(" - ")
+                text = parts[1].strip() if len(parts) > 1 else ""
+                if text:
+                    segments.append({'start': float(times[0]), 'end': float(times[1]), 'text': text})
 
     pygame.mixer.init()
     pygame.mixer.music.load(audio_path)
@@ -41,58 +34,53 @@ def play_pro_lyrics(audio_path, lyric_file):
     start_time = time.time()
     current_segment = 0
 
-    # UI Refresh Function
-    def make_ui(lyric_text, progress_pct=0, total_progress=0):
-        # Karaoke highlight effect
-        num_chars = int(len(lyric_text) * progress_pct)
-        display_text = Text()
-        display_text.append(lyric_text[:num_chars], style="bold cyan")
-        display_text.append(lyric_text[num_chars:], style="bright_black")
+    os.system('cls' if os.name == 'nt' else 'clear')
+    console.print(f"[bold yellow]🎵 Playing: {audio_file}[/bold yellow]\n" + "-"*40)
 
-        # Progress bar setup
-        p_bar = ProgressBar(total=100, completed=total_progress * 100, width=40)
+    try:
+        while pygame.mixer.music.get_busy() and current_segment < len(segments):
+            elapsed = time.time() - start_time
+            segment = segments[current_segment]
 
-        # Main Layout
-        layout = Layout()
-        layout.split_column(
-            Layout(name="upper", size=3),
-            Layout(name="middle", size=7),
-            Layout(name="lower", size=3)
-        )
+            if elapsed >= segment['start']:
+                text_val = segment['text']
+                duration = segment['end'] - segment['start']
+                line_start_time = time.time()
 
-        layout["upper"].update(Align.center("[bold yellow]🎵 Suneera Sumanga - Nela Ganumata Nohaki Wuwada[/bold yellow]"))
-        layout["middle"].update(Panel(Align.center(display_text, vertical="middle"), border_style="blue", padding=(1, 2)))
-        layout["lower"].update(Align.center(p_bar))
+                last_num_chars = -1 # පේළියම එකපාර වැටෙන එක නවත්තන්න
 
-        return layout
+                while True:
+                    line_elapsed = time.time() - line_start_time
+                    if line_elapsed >= duration:
+                        # පේළිය ඉවර වුණාම සම්පූර්ණ පේළිය lock කරනවා
+                        sys.stdout.write('\r' + " " * 120 + '\r')
+                        console.print(f"[bold cyan]{text_val}[/bold cyan]")
+                        break
 
-    # Live Display
-    with Live(make_ui("--- Starting ---"), console=console, screen=True, refresh_per_second=20) as live:
-        try:
-            while pygame.mixer.music.get_busy() or current_segment < len(segments):
-                elapsed = time.time() - start_time
-                total_duration = pygame.mixer.Sound(audio_path).get_length()
-                song_progress = min(elapsed / total_duration, 1.0)
+                    # Typing progress එක calculate කරනවා
+                    progress = min(line_elapsed / (duration * 0.9), 1.0)
+                    num_chars = int(len(text_val) * progress)
 
-                if current_segment < len(segments):
-                    segment = segments[current_segment]
-                    if elapsed >= segment['start']:
-                        duration = segment['end'] - segment['start']
-                        line_elapsed = elapsed - segment['start']
-                        line_pct = min(line_elapsed / (duration * 0.95), 1.0)
+                    # අකුරු ප්‍රමාණය වෙනස් වුණොත් විතරක් රෙන්ඩර් කරනවා (CPU load එක අඩු කරන්න)
+                    if num_chars != last_num_chars:
+                        # Styled text එකක් හදනවා color පේන්න
+                        display_text = Text()
+                        display_text.append(text_val[:num_chars], style="bold cyan")
+                        display_text.append(text_val[num_chars:], style="bright_black") # ඉතුරු ටික gray
 
-                        live.update(make_ui(segment['text'], line_pct, song_progress))
+                        # \r පාවිච්චි කරලා පේළිය උඩම ලියනවා
+                        sys.stdout.write('\r')
+                        console.print(display_text, end="")
+                        sys.stdout.flush()
+                        last_num_chars = num_chars
 
-                        if elapsed > segment['end']:
-                            current_segment += 1
-                    else:
-                        live.update(make_ui("... 🎸 Instrumental 🎸 ...", 0, song_progress))
+                    time.sleep(0.02) # Animation එක smooth වෙන්න පොඩි delay එකක්
 
-                time.sleep(0.02)
-        except KeyboardInterrupt:
-            pygame.mixer.music.stop()
+                current_segment += 1
+            time.sleep(0.01)
+
+    except KeyboardInterrupt:
+        pygame.mixer.music.stop()
 
 if __name__ == "__main__":
-    audio = "nela-ganumata-nohaki-wuwada-suneera-sumanga.mp3"
-    lyrics = "lyrics.txt"
-    play_pro_lyrics(audio, lyrics)
+    play_pro_lyrics("nela-ganumata-nohaki-wuwada-suneera-sumanga.mp3", "lyrics.txt")
