@@ -3,9 +3,7 @@ import time
 import os
 import sys
 
-# cspell:ignore ganumata nohaki wuwada suneera sumanga
-
-def play_pro_lyrics(audio_file, lyric_file):
+def play_pro_lyrics(audio_file, lyric_file, time_offset=0.0):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     audio_path = os.path.join(base_dir, audio_file)
     lyric_path = os.path.join(base_dir, lyric_file)
@@ -20,7 +18,6 @@ def play_pro_lyrics(audio_file, lyric_file):
             line = line.strip()
             if line.startswith("["):
                 try:
-                    # Parses format: [113.50 - 120.50] Lyric text 🌸
                     parts = line.split("]", 1)
                     times = parts[0].strip("[").split(" - ")
 
@@ -40,54 +37,55 @@ def play_pro_lyrics(audio_file, lyric_file):
     pygame.mixer.music.load(audio_path)
     pygame.mixer.music.play()
 
+    # Pygame get_pos() wenuwata OS time eka use karanawa hariyatama accurate wenna
+    start_time_real = time.time()
     current_segment = 0
+
     print(f"\n🎵 Playing: {audio_file}\n")
 
     try:
         last_rendered = ""
-        # Keep running while music is playing and segments are left
         while pygame.mixer.music.get_busy() and current_segment < len(segments):
 
-            # get_pos() returns milliseconds, divide by 1000 for exact seconds
-            elapsed = pygame.mixer.music.get_pos() / 1000.0
+            # Hari second eka calculate karanawa (offset ekath ekka)
+            elapsed = (time.time() - start_time_real) + time_offset
 
             seg = segments[current_segment]
 
-            if elapsed >= seg['start'] and elapsed <= seg['end']:
-                # --- Smooth Typing Logic ---
+            # 1. Thama lyric eka patan ganna welawa awe naththam (Instrumental/Waiting)
+            if elapsed < seg['start']:
+                waiting_text = "🎶 ..."
+                if last_rendered != waiting_text:
+                    sys.stdout.write("\r" + waiting_text.ljust(80))
+                    sys.stdout.flush()
+                    last_rendered = waiting_text
+
+            # 2. Lyric eka play wena welawa (Typing effect)
+            elif seg['start'] <= elapsed <= seg['end']:
                 duration = seg['end'] - seg['start']
                 line_elapsed = elapsed - seg['start']
 
-                # Progress percentage (0.0 to 1.0)
-                progress = min(line_elapsed / duration, 1.0)
+                if "Instrumental" in seg['text'] or "Intro" in seg['text']:
+                    display_text = seg['text']
+                else:
+                    # Typing speed eka adjust kara hariyatama song eka ekka yanna
+                    progress = min(line_elapsed / (duration * 0.8), 1.0)
+                    num_chars = int(len(seg['text']) * progress)
+                    display_text = seg['text'][:num_chars]
 
-                # Number of characters to display based on progress
-                num_chars = int(len(seg['text']) * progress)
-                display_text = seg['text'][:num_chars]
-
-                # Only redraw if the text has changed
                 if display_text != last_rendered:
-                    # Pad with spaces (ljust) to clear leftover characters
-                    sys.stdout.write("\r" + display_text.ljust(60))
+                    sys.stdout.write("\r" + display_text.ljust(80))
                     sys.stdout.flush()
                     last_rendered = display_text
 
+            # 3. Lyric eka iwara unama next line ekata yana eka
             elif elapsed > seg['end']:
-                # Segment ended: print the final full line and move to the next
-                sys.stdout.write("\r" + seg['text'].ljust(60) + "\n")
+                sys.stdout.write("\r" + seg['text'].ljust(80) + "\n")
                 sys.stdout.flush()
                 current_segment += 1
                 last_rendered = ""
 
-            elif elapsed < seg['start']:
-                # Waiting for the next segment (Instrumental/Pause)
-                waiting_text = "🎶 ..."
-                if last_rendered != waiting_text:
-                    sys.stdout.write("\r" + waiting_text.ljust(60))
-                    sys.stdout.flush()
-                    last_rendered = waiting_text
-
-            time.sleep(0.05) # Keeps the loop from eating up CPU
+            time.sleep(0.02) # Very small sleep to make it super smooth without lagging
 
     except KeyboardInterrupt:
         print("\n\n⏹️ Playback stopped by user.")
@@ -97,4 +95,6 @@ def play_pro_lyrics(audio_file, lyric_file):
         print("\nDone!")
 
 if __name__ == "__main__":
-    play_pro_lyrics("nela-ganumata-nohaki-wuwada-suneera-sumanga.mp3", "lyrics.txt")
+    # Lyrics issarahin yanawanam: time_offset eka adu karanna (e.g., -1.5)
+    # Lyrics passen yanawanam: time_offset eka wadi karanna (e.g., 2.0)
+    play_pro_lyrics("nela-ganumata-nohaki-wuwada-suneera-sumanga.mp3", "lyrics.txt", time_offset=0.0)
